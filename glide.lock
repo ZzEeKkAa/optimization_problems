@@ -1,0 +1,38 @@
+hash: 1f25ca8b3f8aa14e26c35023ee6d8000e23889e25a91c4b378e9c7c3c698fe77
+updated: 2018-10-11T10:12:06.412488+03:00
+imports:
+- name: github.com/golang/freetype
+  version: e2365dfdc4a05e4b8299a783240d4a7d5a65d4e4
+  subpackages:
+  - raster
+  - truetype
+- name: github.com/gonum/blas
+  version: e7c5890b24cf6f3bb173f76e1bd71e80e887e3f9
+  subpackages:
+  - blas64
+  - native
+  - native/internal/math32
+- name: github.com/gonum/floats
+  version: 7de1f4ea7ab57890bfd427af68c7994cd67975d4
+- name: github.com/gonum/internal
+  version: fda53f8d25717c07e2dac25758075a182bd74235
+  subpackages:
+  - asm/f32
+  - asm/f64
+- name: github.com/gonum/lapack
+  version: f0b8b25edeceafb3a2752941c7bf0cda962df112
+  subpackages:
+  - lapack64
+  - native
+- name: github.com/gonum/matrix
+  version: a41cc49d4c29f7451775f4379a5cc6ec6239dfab
+  subpackages:
+  - mat64
+- name: github.com/llgcode/draw2d
+  version: f52c8a71aff06ab8df41843d33ab167b36c971cd
+- name: golang.org/x/image
+  version: 991ec62608f3c0da01d400756917825d1e2fd528
+  subpackages:
+  - font
+  - math/fixed
+testImports: []

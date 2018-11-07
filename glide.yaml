@@ -1,0 +1,6 @@
+package: ZzEeKkAa/optimization_promlems
+import:
+- package: github.com/gonum/matrix
+  subpackages:
+  - mat64
+- package: github.com/llgcode/draw2d
