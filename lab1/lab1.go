@@ -15,9 +15,12 @@ func scl(a, b, c, d float64) float64 {
 	return a*c + b*d
 }
 
+var u0, v0 float64
+
 func main() {
 	M := 100
-	u0, v0 := 2., 1.
+	//u0, v0 = 0.2, 0.1
+	u0, v0 = -0.2, 0.0
 	G0 := 0.
 
 	L := func(i int) (float64, float64) {
@@ -49,10 +52,6 @@ func main() {
 	for i := range xc {
 		xc[i] = (x0[i] + x0[i+1]) / 2
 		yc[i] = (y0[i] + y0[i+1]) / 2
-	}
-	for i := range x0 {
-		x, y := L(i)
-		fmt.Printf("%5.3f %5.3f\n", x, y)
 	}
 
 	delta := math.Pow(x0[1]-x0[0], 2) + math.Pow(y0[1]-y0[0], 2)
@@ -95,8 +94,6 @@ func main() {
 	}
 	b.Set(M-1, 0, G0)
 
-	fmt.Println(A)
-
 	if err := G.Solve(A, b); err != nil {
 		log.Fatal(err)
 	}
@@ -120,26 +117,55 @@ func main() {
 		return x*v0 + y*u0 + ans
 	}
 
+	psi := func(x, y float64) float64 {
+		var ans float64
+		var Gk float64
+
+		for j := range xc {
+			Gk = b.At(j, 0)
+
+			Rj := math.Max(delta, math.Sqrt(math.Pow(x-xc[j], 2)+math.Pow(y-yc[j], 2)))
+
+			ans += Gk / (2. * math.Pi) * math.Log(Rj)
+		}
+
+		return -x*v0 + y*u0 - ans
+	}
+	F := func(x, y float64) (float64, float64) {
+		return fi(x, y) / 8, psi(x, y) / 8
+	}
+
 	V := func(x, y float64) (float64, float64) {
 		ansU, ansV := u0, v0
 
-		fmt.Println("-----------------------------")
 		for j := range x0 {
 			uj, vj := Vj(x, y, j)
 			ansU += G.At(j, 0) * uj
 			ansV += G.At(j, 0) * vj
-
-			//fmt.Printf("%6.3f %6.3f %6.3f\n", b.At(j, 0), ansU, ansV)
 		}
 
 		return ansU, ansV
 	}
+	fi(0, 0)
+	V(0, 0)
+	F(0, 0)
 
 	// Graphics
+	PrintVec(V, L, M)
+	//PrintVecLines(V, L, M, 1.6, 0.8)
+	//PrintVecLines(F, L, M, 0.8, 3)
+	//PrintPressure(V, L, M)
+}
 
-	img := image.NewRGBA(image.Rect(0, 0, 1600, 1600))
-	for i := 0; i < 1600; i++ {
-		for j := 0; j < 1600; j++ {
+const (
+	size = 800
+	k    = 200 / 2
+)
+
+func PrintVec(V func(x, y float64) (float64, float64), L func(int) (float64, float64), M int) {
+	img := image.NewRGBA(image.Rect(0, 0, size, size))
+	for i := 0; i < size; i++ {
+		for j := 0; j < size; j++ {
 			img.Set(i, j, color.White)
 		}
 	}
@@ -150,20 +176,22 @@ func main() {
 	gc.SetStrokeColor(color.RGBA{0x44, 0x44, 0x44, 0xff})
 	gc.SetLineWidth(2)
 
-	for x := 0.; x < 8; x += 0.15 {
-		for y := 0.; y < 8; y += 0.15 {
-			fi(x, y)
+	d0 := math.Sqrt(u0*u0 + v0*v0)
+	for x := 0.; x < 8; x += 0.25 {
+		for y := 0.; y < 8; y += 0.25 {
 			u, v := V(x, y)
 			d := math.Sqrt(u*u + v*v)
-			//if d < 6 {
-			//	u *= 6 / d
-			//	v *= 6 / d
-			//	d = 6
-			//}
-			gc.MoveTo(x*200, 1600-y*200)
-			gc.LineTo(x*200+u*5, 1600-(y*200+v*5))
-
-			fmt.Printf("%5.2f %5.2f | %6.3f %6.3f - %5.3f\n", x, y, u, v, d)
+			if d > 3*d0 {
+				u *= 3 / d
+				v *= 3 / d
+			} else {
+				u /= d0
+				v /= d0
+			}
+			u *= 10
+			v *= 10
+			gc.MoveTo(x*k, size-y*k)
+			gc.LineTo(x*k+u, size-(y*k+v))
 		}
 	}
 
@@ -176,16 +204,107 @@ func main() {
 	for i := 0; i < M; i++ {
 		x, y := L(i)
 
-		gc.MoveTo(x*200-3, 1600-(y*200-3))
-		gc.LineTo(x*200+3, 1600-(y*200+3))
-		gc.MoveTo(x*200-3, 1600-(y*200+3))
-		gc.LineTo(x*200+3, 1600-(y*200-3))
+		gc.MoveTo(x*k-3, size-(y*k-3))
+		gc.LineTo(x*k+3, size-(y*k+3))
+		gc.MoveTo(x*k-3, size-(y*k+3))
+		gc.LineTo(x*k+3, size-(y*k-3))
 	}
 
 	gc.Close()
 	gc.FillStroke()
 
 	draw2dimg.SaveToPngFile("img.png", img)
+}
 
-	fmt.Println(G)
+func PrintPressure(V func(x, y float64) (float64, float64), L func(int) (float64, float64), M int) {
+	d0 := math.Sqrt(u0*u0 + v0*v0)
+	img := image.NewRGBA(image.Rect(0, 0, size, size))
+	for i := 0; i < size; i++ {
+		for j := 0; j < size; j++ {
+			x, y := float64(i)/k, float64(j)/k
+			u, v := V(x, y)
+			d := math.Sqrt(u*u + v*v)
+			if d > 3*d0 {
+				d = 1
+			} else {
+				d /= 3 * d0
+			}
+			img.Set(i, j, color.RGBA{R: uint8(255 * d), B: uint8(255 * (1 - d)), A: 255})
+		}
+	}
+
+	gc := draw2dimg.NewGraphicContext(img)
+
+	gc.SetFillColor(color.RGBA{0, 0, 0, 0})
+	gc.SetStrokeColor(color.RGBA{0xff, 0, 0, 0xff})
+	gc.SetLineWidth(2)
+
+	for i := 0; i < M; i++ {
+		x, y := L(i)
+
+		gc.MoveTo(x*k-3, size-(y*k-3))
+		gc.LineTo(x*k+3, size-(y*k+3))
+		gc.MoveTo(x*k-3, size-(y*k+3))
+		gc.LineTo(x*k+3, size-(y*k-3))
+	}
+
+	gc.Close()
+	gc.FillStroke()
+
+	draw2dimg.SaveToPngFile("img.png", img)
+}
+
+func PrintVecLines(V func(x, y float64) (float64, float64), L func(int) (float64, float64), M int, dx, dy float64) {
+	img := image.NewRGBA(image.Rect(0, 0, size, size))
+	for i := 0; i < size; i++ {
+		for j := 0; j < size; j++ {
+			img.Set(i, j, color.White)
+		}
+	}
+
+	gc := draw2dimg.NewGraphicContext(img)
+
+	gc.SetFillColor(color.RGBA{0, 0, 0, 0})
+	gc.SetStrokeColor(color.RGBA{0x44, 0x44, 0x44, 0xff})
+	gc.SetLineWidth(2)
+
+	buildLine := func(x, y float64) {
+		for i := 0; i < 200; i++ {
+			gc.MoveTo(x*k, size-y*k)
+			u, v := V(x, y)
+			fmt.Println(u, v)
+			x, y = x+u, y+v
+			gc.LineTo(x*k, size-(y*k))
+			if x > 8 || y > 8 || x < 0 || y < 0 {
+				return
+			}
+		}
+	}
+
+	for x := 0.; x < 8; x = x + dx {
+		buildLine(x, 0.)
+	}
+	for y := 0.; y < 8; y = y + dy {
+		buildLine(0., y)
+	}
+
+	gc.FillStroke()
+
+	gc.SetFillColor(color.RGBA{0, 0, 0, 0})
+	gc.SetStrokeColor(color.RGBA{0xff, 0, 0, 0xff})
+	gc.SetLineWidth(2)
+
+	for i := 0; i < M; i++ {
+		x, y := L(i)
+
+		gc.MoveTo(x*k-3, size-(y*k-3))
+		gc.LineTo(x*k+3, size-(y*k+3))
+		gc.MoveTo(x*k-3, size-(y*k+3))
+		gc.LineTo(x*k+3, size-(y*k-3))
+	}
+
+	gc.Close()
+	gc.FillStroke()
+
+	draw2dimg.SaveToPngFile("img.png", img)
 }
