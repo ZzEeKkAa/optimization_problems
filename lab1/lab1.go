@@ -105,7 +105,7 @@ func main() {
 		var Gk float64
 
 		for j := range xc {
-			Gk += b.At(j, 0)
+			Gk += G.At(j, 0)
 
 			Rj := math.Max(delta, math.Sqrt(math.Pow(x-xc[j], 2)+math.Pow(y-yc[j], 2)))
 
@@ -114,7 +114,19 @@ func main() {
 
 		ans += G0 / (2 * math.Pi) * math.Atan2(y-y0[M-1], x-x0[M-1])
 
-		return x*v0 + y*u0 + ans
+		return x*u0 + y*v0 + ans
+	}
+	fi2 := func(x, y float64) float64 {
+		var ans float64
+		//var Gk float64
+
+		for j := range x0 {
+			Gk := G.At(j, 0)
+			//ans += Gk * math.Atan2(y-y0[j], x-x0[j]) / (2. * math.Pi)
+			ans += Gk * math.Atan((x-x0[j])/(y-y0[j])) / (2. * math.Pi)
+		}
+
+		return x*u0 + y*v0 + ans
 	}
 
 	psi := func(x, y float64) float64 {
@@ -147,14 +159,18 @@ func main() {
 		return ansU, ansV
 	}
 	fi(0, 0)
+	fi2(0, 0)
 	V(0, 0)
 	F(0, 0)
 
 	// Graphics
-	PrintVec(V, L, M)
+	//PrintVec(V, L, M)
+	//PrintLevel(fi, L, M, 0.5, 0.5)
+	//PrintLevel(fi2, L, M, 0.5, 0.5)
+
 	//PrintVecLines(V, L, M, 1.6, 0.8)
 	//PrintVecLines(F, L, M, 0.8, 3)
-	//PrintPressure(V, L, M)
+	PrintPressure(V, L, M)
 }
 
 const (
@@ -217,19 +233,30 @@ func PrintVec(V func(x, y float64) (float64, float64), L func(int) (float64, flo
 }
 
 func PrintPressure(V func(x, y float64) (float64, float64), L func(int) (float64, float64), M int) {
-	d0 := math.Sqrt(u0*u0 + v0*v0)
+	//d0 := math.Sqrt(u0*u0 + v0*v0)
 	img := image.NewRGBA(image.Rect(0, 0, size, size))
 	for i := 0; i < size; i++ {
 		for j := 0; j < size; j++ {
 			x, y := float64(i)/k, float64(j)/k
 			u, v := V(x, y)
-			d := math.Sqrt(u*u + v*v)
-			if d > 3*d0 {
-				d = 1
+			d := 1. - (u*u+v*v)/(u0*u0+v0*v0)
+			if d < 0 {
+				d *= -1
+				if d <= 1 {
+					img.Set(i, j, color.RGBA{R: uint8(255 * (1 - d)), G: uint8(255 * (1 - d)), B: uint8(255), A: 255})
+				} else {
+					d -= 1
+					img.Set(i, j, color.RGBA{B: uint8(255. * (1 - d/5)), A: 255})
+				}
 			} else {
-				d /= 3 * d0
+				img.Set(i, j, color.RGBA{R: 255, G: uint8(255 * (1 - d)), B: uint8(255 * (1 - d)), A: 255})
 			}
-			img.Set(i, j, color.RGBA{R: uint8(255 * d), B: uint8(255 * (1 - d)), A: 255})
+			//if d > 3*d0 {
+			//	d = 1
+			//} else {
+			//	d /= 3 * d0
+			//}
+			//img.Set(i, j, color.RGBA{R: uint8(255 * d), B: uint8(255 * (1 - d)), A: 255})
 		}
 	}
 
@@ -283,9 +310,105 @@ func PrintVecLines(V func(x, y float64) (float64, float64), L func(int) (float64
 
 	for x := 0.; x < 8; x = x + dx {
 		buildLine(x, 0.)
+		buildLine(x, 8.)
 	}
 	for y := 0.; y < 8; y = y + dy {
 		buildLine(0., y)
+		buildLine(8., y)
+	}
+
+	gc.FillStroke()
+
+	gc.SetFillColor(color.RGBA{0, 0, 0, 0})
+	gc.SetStrokeColor(color.RGBA{0xff, 0, 0, 0xff})
+	gc.SetLineWidth(2)
+
+	for i := 0; i < M; i++ {
+		x, y := L(i)
+
+		gc.MoveTo(x*k-3, size-(y*k-3))
+		gc.LineTo(x*k+3, size-(y*k+3))
+		gc.MoveTo(x*k-3, size-(y*k+3))
+		gc.LineTo(x*k+3, size-(y*k-3))
+	}
+
+	gc.Close()
+	gc.FillStroke()
+
+	draw2dimg.SaveToPngFile("img.png", img)
+}
+
+func PrintLevel(phi func(x, y float64) float64, L func(int) (float64, float64), M int, dx, dy float64) {
+	img := image.NewRGBA(image.Rect(0, 0, size, size))
+	for i := 0; i < size; i++ {
+		for j := 0; j < size; j++ {
+			img.Set(i, j, color.White)
+		}
+	}
+
+	gc := draw2dimg.NewGraphicContext(img)
+
+	gc.SetFillColor(color.RGBA{0, 0, 0, 0})
+	gc.SetStrokeColor(color.RGBA{0x44, 0x44, 0x44, 0xff})
+	gc.SetLineWidth(2)
+
+	buildLine := func(x, y float64) {
+		var (
+			minX, minY float64
+			pathX      []float64
+			pathY      []float64
+		)
+
+		h := phi(x, y)
+		pathX, pathY = append(pathX, x), append(pathY, y)
+		for i := 0; i < 200; i++ {
+			gc.MoveTo(x*k, size-y*k)
+			var mindH = 1000000.0
+		ml:
+			for al := 0.; al < 2*math.Pi; al += 0.02 {
+				tx, ty := x+math.Cos(al)*0.1, y+math.Sin(al)*0.1
+				if tx < 0 || tx > 8 || ty < 0 || ty > 8 {
+					continue
+				}
+
+				for i, oldX := range pathX {
+					oldY := pathY[i]
+					if (oldX-tx)*(oldX-tx)+(oldY-ty)*(oldY-ty) < 0.03*0.03 {
+						continue ml
+					}
+				}
+
+				th := phi(tx, ty)
+				dh := math.Abs(th - h)
+				if dh < mindH {
+					mindH = dh
+					minX, minY = tx, ty
+				}
+			}
+			if mindH > 0.5 {
+				continue
+			}
+			x, y = minX, minY
+			pathX, pathY = append(pathX, x), append(pathY, y)
+			if len(pathX) > 10 {
+				pathX = pathX[len(pathX)-10:]
+				pathY = pathY[len(pathY)-10:]
+			}
+			gc.LineTo(x*k, size-(y*k))
+			if x > 8 || y > 8 || x < 0 || y < 0 {
+				return
+			}
+		}
+	}
+
+	for x := 0.; x < 8; x = x + dx {
+		buildLine(x, 0.)
+		buildLine(x, 8.)
+	}
+	for y := 0.; y < 8; y = y + dy {
+		buildLine(0., y)
+		buildLine(8., y)
+		buildLine(8., y)
 	}
 
 	gc.FillStroke()
