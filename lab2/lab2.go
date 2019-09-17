@@ -11,12 +11,16 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/basicfont"
+	"golang.org/x/image/math/fixed"
+
 	"github.com/gonum/matrix/mat64"
 )
 
 var (
 	threads    = flag.Int("threads", 12, "Number of threads for computing.")
-	iterations = flag.Int("iterations", 1500, "Number of iterations.")
+	iterations = flag.Int("iterations", 500, "Number of iterations.")
 	dt         = flag.Float64("dt", 0.1, "Time range for one iteration.")
 )
 
@@ -239,6 +243,7 @@ func main() {
 		if dt := int((totalFrameTime - lastFrameTime) * 100); dt > 5 {
 			t0 = time.Now()
 			pal := PrintVec(V, L, p, M, u0, v0)
+			addLabel(pal, sizeX-280, 20, "Yevhenii Havrylko, AM-1, November 2018")
 			img.Image = append(img.Image, pal)
 
 			img.Delay = append(img.Delay, dt)
@@ -474,4 +479,17 @@ func Line(img *image.Paletted, x0, y0, x, y int, ind uint8) {
 func Tic(img *image.Paletted, x, y int, ind uint8) {
 	Line(img, x-3, y-3, x+3, y+3, ind)
 	Line(img, x-3, y+3, x+3, y-3, ind)
+}
+
+func addLabel(img *image.Paletted, x, y int, label string) {
+	col := color.RGBA{200, 100, 0, 255}
+	point := fixed.Point26_6{fixed.Int26_6(x * 64), fixed.Int26_6(y * 64)}
+
+	d := &font.Drawer{
+		Dst:  img,
+		Src:  image.NewUniform(col),
+		Face: basicfont.Face7x13,
+		Dot:  point,
+	}
+	d.DrawString(label)
 }
