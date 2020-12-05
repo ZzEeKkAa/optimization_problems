@@ -22,7 +22,7 @@ import (
 var (
 	threads         = flag.Int("threads", 12, "Number of threads for computing.")
 	klyaksaPoints   = flag.Int("klyaksa_points", 20, "Number of threads for computing.")
-	iterations      = flag.Int("iterations", 2000, "Number of iterations.")
+	iterations      = flag.Int("iterations", 2200, "Number of iterations.")
 	iterationsStart = flag.Int("iterations_start", 1400, "Iterations from what animation is writing to gif.")
 	dt              = flag.Float64("dt", 1, "Time range for one iteration.")
 )
@@ -39,10 +39,12 @@ type Vih struct {
 }
 
 type Klyaksa struct {
-	x []float64
-	y []float64
-	u []float64
-	v []float64
+	x              []float64
+	y              []float64
+	u              []float64
+	v              []float64
+	ax, bx, cx, dx []float64
+	ay, by, cy, dy []float64
 }
 
 func scl(a, b, c, d float64) float64 {
@@ -62,6 +64,8 @@ func main() {
 		matrixTime   time.Duration
 		graphicsTime time.Duration
 		pointsTime   time.Duration
+		klyaksaTime  time.Duration
+		splinesTime  time.Duration
 		movingTime   time.Duration
 	)
 
@@ -104,6 +108,34 @@ func main() {
 			dy = -dY
 		}
 		return math.Cos(angle), math.Sin(angle) + dy
+	}
+
+	drawSolidLetter := func(pal *image.Paletted) {
+		N := 200
+		nn := (N + 1) / 2
+		for i := 0; i < N; i++ {
+			var (
+				angle float64
+				dy    float64
+			)
+			if i < nn {
+				angle = float64(i)/float64(nn-1)*(betta-alpha) + (1.5*math.Pi - betta)
+				dy = dY
+			} else {
+				angle = float64(i-nn+1)/float64(N-nn)*(betta-alpha) + (math.Pi*0.5 + alpha)
+				dy = -dY
+			}
+			x, y := convCoord(math.Cos(angle), math.Sin(angle)+dy)
+			pal.SetColorIndex(x, y, 1)
+			pal.SetColorIndex(x+1, y, 1)
+			pal.SetColorIndex(x-1, y, 1)
+			pal.SetColorIndex(x, y+1, 1)
+			pal.SetColorIndex(x, y-1, 1)
+			pal.SetColorIndex(x+1, y+1, 1)
+			pal.SetColorIndex(x-1, y-1, 1)
+			pal.SetColorIndex(x-1, y+1, 1)
+			pal.SetColorIndex(x+1, y-1, 1)
+		}
 	}
 
 	//moveAway := func(x1, y1, x2, y2 float64) (float64, float64) {
@@ -338,6 +370,10 @@ func main() {
 			return ansU, ansV
 		}
 
+		t0 = time.Now()
+		kl.BuildSplines()
+		splinesTime += time.Now().Sub(t0)
+
 		// Graphics
 		if n >= NStart {
 			if n == NStart {
@@ -353,6 +389,8 @@ func main() {
 
 				img.Delay = append(img.Delay, dt)
 				lastFrameTime += float64(dt) / 100.
+
+				drawSolidLetter(pal)
 
 				graphicsTime += time.Now().Sub(t0)
 			}
@@ -382,6 +420,11 @@ func main() {
 				}
 			}
 		}
+		wg.Wait()
+
+		pointsTime += time.Now().Sub(t0)
+		t0 = time.Now()
+
 		for i := range kl.x {
 			wg.Add(1)
 			remoteKlTasks <- RemoteKlTask{
@@ -391,6 +434,9 @@ func main() {
 		}
 
 		wg.Wait()
+		klyaksaTime += time.Now().Sub(t0)
+		t0 = time.Now()
+
 		var maxW float64
 		for _, vih := range p {
 			for i := range vih.g {
@@ -414,6 +460,9 @@ func main() {
 			}
 		}
 
+		pointsTime += time.Now().Sub(t0)
+		t0 = time.Now()
+
 		if n > 1500 {
 			for i := range kl.x {
 				kl.x[i] += kl.u[i] * mdt
@@ -421,8 +470,7 @@ func main() {
 			}
 			kl.AddPoints(2 * 2 * math.Pi / float64(*klyaksaPoints))
 		}
-
-		pointsTime += time.Now().Sub(t0)
+		klyaksaTime += time.Now().Sub(t0)
 
 		// -- Moving away from line
 		t0 = time.Now()
@@ -468,10 +516,12 @@ func main() {
 	}
 	totalTime := time.Now().Sub(tt0)
 
-	log.Printf("matrixTime: %5.2f%% %v\n", float64(matrixTime*100)/float64(totalTime), matrixTime)
-	log.Printf("graphicsTime: %5.2f%% %v\n", float64(graphicsTime*100)/float64(totalTime), graphicsTime)
-	log.Printf("pointsTime: %5.2f%% %v\n", float64(pointsTime*100)/float64(totalTime), pointsTime)
-	log.Printf("movingTime: %5.2f%% %v\n", float64(movingTime*100)/float64(totalTime), movingTime)
+	log.Printf("matrixTime:   %5.2f%%  %v\n", float64(matrixTime*100)/float64(totalTime), matrixTime)
+	log.Printf("graphicsTime: %5.2f%%  %v\n", float64(graphicsTime*100)/float64(totalTime), graphicsTime)
+	log.Printf("pointsTime:   %5.2f%%  %v\n", float64(pointsTime*100)/float64(totalTime), pointsTime)
+	log.Printf("klyaksaTime:  %5.2f%%  %v\n", float64(klyaksaTime*100)/float64(totalTime), klyaksaTime)
+	log.Printf("splinesTime:  %5.2f%%  %v\n", float64(splinesTime*100)/float64(totalTime), splinesTime)
+	log.Printf("movingTime:   %5.2f%%  %v\n", float64(movingTime*100)/float64(totalTime), movingTime)
 	log.Println("--------------------------")
 	log.Printf("totalTime: %v\n", totalTime)
 
@@ -517,29 +567,31 @@ func (kl *Klyaksa) buildSplines(x []float64) (a, b, c, d []float64) {
 	a = make([]float64, n)
 	copy(a, x)
 
-	s := mat64.NewDense(n, n, nil)
-	s0 := mat64.NewDense(n, 1, nil)
-	for i := 1; i < n-1; i++ {
-		s.Set(i, i-1, 1)
-		s.Set(i, i, 4)
-		s.Set(i, i+1, 1)
-		s0.Set(i, 0, 3*((a[i+1]-a[i])-(a[i]-a[i-1])))
-	}
-	s.Set(0, n-1, 1)
-	s.Set(0, 0, 4)
-	s.Set(0, 1, 1)
-	s0.Set(0, 0, 3*((a[1]-a[0])-(a[0]-a[n-1])))
-	s.Set(n-1, n-2, 1)
-	s.Set(n-1, n-1, 4)
-	s.Set(n-1, 0, 1)
-	s0.Set(n-1, 0, 3*((a[0]-a[n-1])-(a[n-1]-a[n-2])))
+	c = kl.solve(x)
 
-	cc := &mat64.Dense{}
-
-	if err := cc.Solve(s, s0); err != nil {
-		panic(err)
-	}
-	c = cc.RawMatrix().Data[0:n]
+	//s := mat64.NewDense(n, n, nil)
+	//s0 := mat64.NewDense(n, 1, nil)
+	//for i := 1; i < n-1; i++ {
+	//	s.Set(i, i-1, 1)
+	//	s.Set(i, i, 4)
+	//	s.Set(i, i+1, 1)
+	//	s0.Set(i, 0, 3*((a[i+1]-a[i])-(a[i]-a[i-1])))
+	//}
+	//s.Set(0, n-1, 1)
+	//s.Set(0, 0, 4)
+	//s.Set(0, 1, 1)
+	//s0.Set(0, 0, 3*((a[1]-a[0])-(a[0]-a[n-1])))
+	//s.Set(n-1, n-2, 1)
+	//s.Set(n-1, n-1, 4)
+	//s.Set(n-1, 0, 1)
+	//s0.Set(n-1, 0, 3*((a[0]-a[n-1])-(a[n-1]-a[n-2])))
+	//
+	//cc := &mat64.Dense{}
+	//
+	//if err := cc.Solve(s, s0); err != nil {
+	//	panic(err)
+	//}
+	//c = cc.RawMatrix().Data[0:n]
 
 	d = make([]float64, n)
 	for i := 1; i < n; i++ {
@@ -556,9 +608,77 @@ func (kl *Klyaksa) buildSplines(x []float64) (a, b, c, d []float64) {
 	return
 }
 
+func (kl *Klyaksa) solveOld(x []float64) []float64 {
+	n := len(x)
+
+	s := mat64.NewDense(n, n, nil)
+	s0 := mat64.NewDense(n, 1, nil)
+	for i := 1; i < n-1; i++ {
+		s.Set(i, i-1, 1)
+		s.Set(i, i, 4)
+		s.Set(i, i+1, 1)
+		s0.Set(i, 0, 3*((x[i+1]-x[i])-(x[i]-x[i-1])))
+	}
+	s.Set(0, n-1, 1)
+	s.Set(0, 0, 4)
+	s.Set(0, 1, 1)
+	s0.Set(0, 0, 3*((x[1]-x[0])-(x[0]-x[n-1])))
+	s.Set(n-1, n-2, 1)
+	s.Set(n-1, n-1, 4)
+	s.Set(n-1, 0, 1)
+	s0.Set(n-1, 0, 3*((x[0]-x[n-1])-(x[n-1]-x[n-2])))
+
+	cc := &mat64.Dense{}
+
+	if err := cc.Solve(s, s0); err != nil {
+		panic(err)
+	}
+	return cc.RawMatrix().Data[0:n]
+}
+
+func (kl *Klyaksa) solve(x []float64) []float64 {
+	n := len(x)
+
+	a := make([]float64, n)
+	b := make([]float64, n)
+	c := make([]float64, n)
+	f := make([]float64, n)
+
+	for i := 1; i < n-1; i++ {
+		a[i] = 1
+		b[i] = 4
+		c[i] = 1
+		f[i] = 3 * ((x[i+1] - x[i]) - (x[i] - x[i-1]))
+	}
+	//a[0] = 0
+	//c[n-1] = 0
+	b[0], c[0], f[0] = 4, 1, 3*((x[1]-x[0])-(x[0]-x[n-1]))
+	a[n-1], b[n-1], f[n-1] = 1, 4, 3*((x[0]-x[n-1])-(x[n-1]-x[n-2]))
+
+	for i := 0; i < n-1; i++ {
+		b[i+1] -= c[i] * a[i+1] / b[i]
+		f[i+1] -= f[i] * a[i+1] / b[i]
+		a[i+1] = 0
+	}
+	f[n-1] /= b[n-1]
+	b[n-1] = 1
+	for i := n - 2; i >= 0; i-- {
+		f[i] -= f[i+1] * c[i]
+		f[i] /= b[i]
+		b[i] = 1
+	}
+
+	return f
+}
+
+func (kl *Klyaksa) BuildSplines() {
+	kl.ax, kl.bx, kl.cx, kl.dx = kl.BuildSplinesX()
+	kl.ay, kl.by, kl.cy, kl.dy = kl.BuildSplinesY()
+}
+
 func (kl *Klyaksa) AddSplineToImage(pal *image.Paletted) {
-	ax, bx, cx, dx := kl.BuildSplinesX()
-	ay, by, cy, dy := kl.BuildSplinesY()
+	ax, bx, cx, dx := kl.ax, kl.bx, kl.cx, kl.dx
+	ay, by, cy, dy := kl.ay, kl.by, kl.cy, kl.dy
 
 	for i := 0; i < len(kl.x); i++ {
 		for t := 0.; t < 1; t += 0.01 {
@@ -587,8 +707,8 @@ func (kl *Klyaksa) AddToImage(pal *image.Paletted) {
 }
 
 func (kl *Klyaksa) AddPoints(maxDist float64) {
-	ax, bx, cx, dx := kl.BuildSplinesX()
-	ay, by, cy, dy := kl.BuildSplinesY()
+	ax, bx, cx, dx := kl.ax, kl.bx, kl.cx, kl.dx
+	ay, by, cy, dy := kl.ay, kl.by, kl.cy, kl.dy
 
 	var di int
 	for i := 1; i < len(kl.x); i++ {
@@ -600,13 +720,13 @@ func (kl *Klyaksa) AddPoints(maxDist float64) {
 			continue
 		}
 
-		fmt.Println(" -> ", x0, y0)
+		//fmt.Println(" -> ", x0, y0)
 		var x1, y1, u1, v1 []float64
 		for j := 0; j < n; j++ {
 			t := float64(n-j) / float64(n+1)
 			x := ax[i-di] - bx[i-di]*t + cx[i-di]*t*t - dx[i-di]*t*t*t
 			y := ay[i-di] - by[i-di]*t + cy[i-di]*t*t - dy[i-di]*t*t*t
-			fmt.Println(t, x, y)
+			//fmt.Println(t, x, y)
 			x1 = append(x1, x)
 			y1 = append(y1, y)
 
@@ -615,7 +735,7 @@ func (kl *Klyaksa) AddPoints(maxDist float64) {
 			u1 = append(u1, 0)
 			v1 = append(v1, 0)
 		}
-		fmt.Println(" <- ", x, y)
+		//fmt.Println(" <- ", x, y)
 
 		x1 = append(x1, kl.x[i:]...)
 		y1 = append(y1, kl.y[i:]...)
